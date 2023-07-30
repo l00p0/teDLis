@@ -9,23 +9,20 @@
  *
  * TODOS
  * 
- *   x allow holding down key to repeat move
- *   x display score
- *   x implement GAME OVER condition
  *   - level up, increase speed, 
- *   - do some animation when lines complete
+ *   - do some animation when lines complete, when moving, etc
  *   - sound
  *   - press space to drop to bottom
- *
+ *   - clean up code, remove globals to allow for multiplayer
  *
  * */
 
 const int SCREEN_WIDTH = 800;
 const int SCREEN_HEIGHT = 640;
-const float SPEED = 100.0f;
-const int HEIGHT = 25;
-const int WIDTH = 10;
+enum { HEIGHT = 25, WIDTH = 10};
 const int CELL_DIM = 25;
+
+
 
 //BOARD BASE POSITION in pixels
 const int B_X = (SCREEN_WIDTH - CELL_DIM * WIDTH) / 2;
@@ -38,8 +35,9 @@ int   LEVEL = 1;
 int   TOTAL_LINES = 0;
 char  GAME_OVER = 0;
 
-//int BOARD [WIDTH][HEIGHT];
-int BOARD [10][25];
+int PIECE_BUFFER[3];
+int BOARD [WIDTH][HEIGHT];
+//int BOARD [10][25];
 
 int TETROMINOS[7][2][4] = {
     {
@@ -84,12 +82,18 @@ int BLOCK_Y = 0;
 int BLOCK_X_SIZE=0;
 int BLOCK_Y_SIZE=0;
 
-int draw_cell(int x, int y, int contents){
- 
+
+int draw_cell_px(int x, int y, int cell_dim, int contents){
     const Color colors[] = {RED,GOLD,ORANGE,LIME,BROWN,DARKBLUE,RAYWHITE};
 
     int idx = contents -1 % 7;
-    DrawRectangle(B_X + x * CELL_DIM, B_Y + y * CELL_DIM, CELL_DIM-1, CELL_DIM-1, colors[idx]);
+    DrawRectangle(x, y, cell_dim-1, cell_dim-1, colors[idx]);
+
+}
+
+int draw_cell(int x, int y, int contents){
+ 
+    draw_cell_px(B_X + x * CELL_DIM, B_Y + y * CELL_DIM, CELL_DIM, contents);
 
 }
 
@@ -124,6 +128,29 @@ int draw_board(){
         }
     }
     return 0;
+}
+
+int draw_preview(int x, int y, int tet_index, int cell_dim){
+    int row,col;
+    for(col=0;col<4;col++){
+        for(row=0;row<2;row++){
+            if(TETROMINOS[tet_index][row][col] != 0){
+                draw_cell_px(x+col*cell_dim, y+row*cell_dim, cell_dim, TETROMINOS[tet_index][row][col]);
+            }
+        }
+    }
+
+
+}
+
+int draw_preview_pieces(){
+    int x = (SCREEN_WIDTH + WIDTH * CELL_DIM) / 2 + 50;
+    int y = 10;
+    int preview_cell_dim = 10;
+    draw_preview(x, y, PIECE_BUFFER[0], preview_cell_dim);
+    y += preview_cell_dim * 4;
+    draw_preview(x, y, PIECE_BUFFER[1], preview_cell_dim);
+
 }
 
 int rotate_block(int result[4][4], int rotation){
@@ -173,7 +200,13 @@ int rotate_block(int result[4][4], int rotation){
     int temp = BLOCK_X_SIZE;
     BLOCK_X_SIZE=BLOCK_Y_SIZE;
     BLOCK_Y_SIZE=temp;
-
+    //check if we're out of bounds and move
+    if(BLOCK_X +BLOCK_X_SIZE > WIDTH){
+        BLOCK_X = WIDTH - BLOCK_X_SIZE;
+    }
+    if(BLOCK_X < 0){//should never be true
+        BLOCK_X = 0;
+    }
     return 0;
 }
 
@@ -212,7 +245,11 @@ int set_current_piece(int tet_index){
 }
 
 int new_piece(void){
-    set_current_piece((int) rand() % 7);
+
+    set_current_piece(PIECE_BUFFER[0]);
+    PIECE_BUFFER[0] = PIECE_BUFFER[1];
+    PIECE_BUFFER[1] = PIECE_BUFFER[2];
+    PIECE_BUFFER[2] = (int) rand() % 7;
     BLOCK_X = 5;
     BLOCK_Y = 0;
 }
@@ -226,7 +263,7 @@ int initialise(void){
     }
     CURRENT_STEP_LEFT = CURRENT_STEP_TIMEOUT;
     srand(time(0));
-    new_piece();
+    new_piece();new_piece();new_piece();//fill up the piece buffer
     return 0;
 } 
 
@@ -304,6 +341,9 @@ int inc_score(int completed_lines){
     TOTAL_LINES += completed_lines;
     LEVEL = (TOTAL_LINES/15) + 1;
     CURRENT_STEP_TIMEOUT = 1.0f - (float)(LEVEL/10.0f);
+    if(CURRENT_STEP_TIMEOUT < 0.2f){
+        CURRENT_STEP_TIMEOUT = 0.2f;
+    }
 
     printf("New Score +%d = %d \n", add, SCORE);
 
@@ -374,6 +414,7 @@ int process_step(float dt){
 
     draw_score();
     draw_board();
+    draw_preview_pieces();
 
     //draw our current piece
     int row,col;
