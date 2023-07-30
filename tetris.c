@@ -9,12 +9,11 @@
  *
  * TODOS
  * 
- *   - level up, increase speed, 
  *   - do some animation when lines complete, when moving, etc
  *   - sound
  *   - press space to drop to bottom
  *   - clean up code, remove globals to allow for multiplayer
- *
+ *   - fix GAME OVER display alignment
  * */
 
 const int SCREEN_WIDTH = 800;
@@ -79,9 +78,11 @@ int CURRENT_PIECE[4][4] = {
 
 int BLOCK_X = 5;
 int BLOCK_Y = 0;
+int BLOCK_X_LAST = 5;
+int BLOCK_Y_LAST = 0;
 int BLOCK_X_SIZE=0;
 int BLOCK_Y_SIZE=0;
-
+double BLOCK_UPDATE_TIME = 0;
 
 int draw_cell_px(int x, int y, int cell_dim, int contents){
     const Color colors[] = {RED,GOLD,ORANGE,LIME,BROWN,DARKBLUE,RAYWHITE};
@@ -251,7 +252,10 @@ int new_piece(void){
     PIECE_BUFFER[1] = PIECE_BUFFER[2];
     PIECE_BUFFER[2] = (int) rand() % 7;
     BLOCK_X = 5;
+    BLOCK_X_LAST = 5;
     BLOCK_Y = 0;
+    BLOCK_Y_LAST = 0;
+    BLOCK_UPDATE_TIME = GetTime();
 }
 
 int initialise(void){
@@ -266,6 +270,14 @@ int initialise(void){
     new_piece();new_piece();new_piece();//fill up the piece buffer
     return 0;
 } 
+
+int update_block_pos(int inc_x, int inc_y){
+    BLOCK_X_LAST = BLOCK_X;
+    BLOCK_Y_LAST = BLOCK_Y;
+    BLOCK_X += inc_x;
+    BLOCK_Y += inc_y;
+    BLOCK_UPDATE_TIME = GetTime();
+}
 
 int cell_full(int x, int y){
     
@@ -391,7 +403,7 @@ int score_lines(void){
 int next_step(void){
     CURRENT_STEP_LEFT = CURRENT_STEP_TIMEOUT;
     if(can_drop()){
-        BLOCK_Y++;
+        update_block_pos(0,1);
     }else{//we landed
         //are we dead?
         if(BLOCK_Y <=0){
@@ -405,10 +417,19 @@ int next_step(void){
     return 0;
 }
 
-int process_step(float dt){
+int process_particles(void *particles, float dt){
+    int i;
+    for(i=0;i< 1024;i++){
+        //particles[i]->lifetime -= dt;
+    }
+    return 0;
+}
+
+int process_step(float dt, double gametime){
     
     CURRENT_STEP_LEFT = CURRENT_STEP_LEFT - dt;
     if(CURRENT_STEP_LEFT <=0){
+        //printf("CURRENT STEP ELAPSED %lf \n",CURRENT_STEP_LEFT),
         next_step();
     }
 
@@ -416,12 +437,31 @@ int process_step(float dt){
     draw_board();
     draw_preview_pieces();
 
-    //draw our current piece
+    void * particles;
+    process_particles(particles, dt);
+
+    //draw our current piece 
+    // we want to lerp between last and current pos 
+    // in 1/8 of a sec we want to go cross a cell-width with ease in and out, at 30fps ~ 4 frames
+
+
+    float lerp = (gametime - BLOCK_UPDATE_TIME)/0.8;
+    int offset_x = 0;
+    int offset_y = 0;
+    if(lerp < 1){
+        offset_x = (BLOCK_X - BLOCK_X_LAST) * CELL_DIM * lerp;
+        offset_y = (BLOCK_Y - BLOCK_Y_LAST) * CELL_DIM * lerp;
+//        printf("lerp is %.4f, offset_x=%d, offset_y=%d ,final_y = %d\n",lerp, offset_x, offset_y,B_Y + offset_y + (BLOCK_Y +1 )*CELL_DIM);
+    }
     int row,col;
+    int base_x = B_X + offset_x + (BLOCK_X_LAST * CELL_DIM);
+    int base_y = B_Y + offset_y + (BLOCK_Y_LAST * CELL_DIM);
+//    printf("Drawing at basepos %d, %d \n",base_x,base_y);
     for(col=0;col<4;col++){
         for(row=0;row<4;row++){
             if(CURRENT_PIECE[row][col] != 0){
-                draw_cell(BLOCK_X+col,BLOCK_Y+row,CURRENT_PIECE[row][col]);
+                draw_cell_px(base_x + (col*CELL_DIM), base_y + (row*CELL_DIM), CELL_DIM, CURRENT_PIECE[row][col]);
+ //               draw_cell_px(B_X - 4 + ((BLOCK_X + col)*CELL_DIM), B_Y + offset_y + ((BLOCK_Y + row-4)*CELL_DIM), CELL_DIM, CURRENT_PIECE[row][col]);
             }
         }
     }
@@ -482,19 +522,19 @@ int main (void){
         switch(key){
             case KEY_LEFT : {
                                 if(can_strafe(-1)){
-                                    BLOCK_X -= 1;
+                                    update_block_pos(-1,0);//BLOCK_X -= 1;
                                 }
                                 break;
                             }
             case KEY_RIGHT : {
                                 if(can_strafe(+1)){
-                                    BLOCK_X += 1;
+                                    update_block_pos(1,0);
                                 }
                                 break;
                             }
             case KEY_DOWN : {
                                 if(can_drop()){
-                                    BLOCK_Y += 1;
+                                    update_block_pos(0,1);                                
                                 }
                                 break;
                             }
@@ -529,7 +569,7 @@ int main (void){
                 DrawText(scorebuff,SCREEN_WIDTH/2-120,starty,fontSize,RED);
 
             }else{
-                process_step(GetFrameTime());
+                process_step(GetFrameTime(),gametime);                
             }
 
         EndDrawing();
