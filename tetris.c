@@ -11,15 +11,17 @@
  * 
  *   - do some animation when lines complete, when moving, etc
  *   - sound
- *   - press space to drop to bottom
- *   - clean up code, remove globals to allow for multiplayer
- *   - fix GAME OVER display alignment
+ *   - drop position indicator
+ *   - ? multiplayer  (with punish)
+ *   - ? network multiplayer?
+ * 
  * */
 
-const int SCREEN_WIDTH = 800;
-const int SCREEN_HEIGHT = 640;
-enum { HEIGHT = 25, WIDTH = 10};
-const int CELL_DIM = 25;
+#define SCREEN_WIDTH 800
+#define SCREEN_HEIGHT 640
+#define HEIGHT 25
+#define WIDTH 10
+#define CELL_DIM 25
 
 
 
@@ -91,25 +93,25 @@ typedef struct {
 int new_piece(Player*);
 
 int init_player(Player *player){
-	player->block_x = 5;
-	player->block_y = 0;
-	player->block_x_last = 5;
-	player->block_y_last = 0;
-	player->block_x_size = 0;
-	player->block_y_size = 0;
-	player->block_update_time = 0;
+    player->block_x = 5;
+    player->block_y = 0;
+    player->block_x_last = 5;
+    player->block_y_last = 0;
+    player->block_x_size = 0;
+    player->block_y_size = 0;
+    player->block_update_time = 0;
     player->step_timeout = 1.0f;
     player->piece_buffer[0]=0;
     player->piece_buffer[1]=0;
     player->piece_buffer[2]=0;
-	player->current_step_left = player->step_timeout;
+    player->current_step_left = player->step_timeout;
 
     player->game_over = 0;
     player->score = 0;
     player->level = 1;
     player->total_lines = 0;
-    
-	int x, y;
+
+    int x, y;
 
 	for(x=0;x<WIDTH;x++){
         for(y=0; y<HEIGHT; y++){
@@ -516,6 +518,7 @@ int process_step(float dt, double gametime, Player *player){
             }
         }
     }
+    DrawRectangle(base_x, B_Y + (HEIGHT*CELL_DIM), player->block_x_size * CELL_DIM, 10, GRAY);
 
 //    draw_cell(BLOCK_X,BLOCK_Y,0);   
 
@@ -525,6 +528,36 @@ int process_step(float dt, double gametime, Player *player){
 
 
 
+int draw_text_centered(char *txtbuff, int center_x, int start_y, int fontsize, Color color){
+    int offset = MeasureText(txtbuff, fontsize)/2;
+
+    DrawText(txtbuff, center_x-offset, start_y, fontsize, color);
+    return 0;
+
+}
+
+int draw_game_over_screen(Player *player){
+
+    int starty = SCREEN_HEIGHT/2 - 200;
+    int fontSize = 30;
+    char scorebuff[1024];
+    //DrawText("GAME OVER",SCREEN_WIDTH/2 -100 , starty, fontSize, RED);
+    draw_text_centered("Game Over", SCREEN_WIDTH/2, starty, fontSize, RED);
+    
+    sprintf(scorebuff,"SCORE: %d", player->score);
+    starty += fontSize*1.2;
+    draw_text_centered(scorebuff,SCREEN_WIDTH/2,starty,fontSize,RED);
+    
+    sprintf(scorebuff,"Level: %d", player->level);
+    starty += fontSize*1.2;
+    draw_text_centered(scorebuff,SCREEN_WIDTH/2, starty,fontSize,RED);
+
+    sprintf(scorebuff,"Total Lines: %d", player->total_lines);
+    starty += fontSize*1.2;
+    draw_text_centered(scorebuff, SCREEN_WIDTH/2, starty, fontSize,RED);
+
+
+}
 
 int main (void){
 
@@ -575,6 +608,7 @@ int main (void){
             } 
         }
 
+        //TODO indirect these keys to allow for remapping
         switch(key){
             case KEY_LEFT : {
                                 if(can_strafe(&player,-1)){
@@ -598,6 +632,11 @@ int main (void){
                                 rotate_block(&player, player.current_piece, 1);
                                 break;
                             }
+            case KEY_SPACE: {
+                                while(can_drop(&player)){
+                                    update_block_pos(&player,0,1);
+                                }
+                            }
         }
         
 
@@ -607,23 +646,7 @@ int main (void){
 
             ClearBackground(BLACK);
             if(player.game_over){
-                int starty = SCREEN_HEIGHT/2 - 200;
-                int fontSize = 30;
-                char scorebuff[1024];
-                DrawText("GAME OVER",SCREEN_WIDTH/2-100, starty, fontSize, RED);
-                
-                sprintf(scorebuff,"SCORE: %d", player.score);
-                starty += fontSize*1.2;
-                DrawText(scorebuff,SCREEN_WIDTH/2-80,starty,fontSize,RED);
-                
-                sprintf(scorebuff,"Level: %d", player.level);
-                starty += fontSize*1.2;
-                DrawText(scorebuff,SCREEN_WIDTH/2-80, starty,fontSize,RED);
-
-                sprintf(scorebuff,"Total Lines: %d", player.total_lines);
-                starty += fontSize*1.2;
-                DrawText(scorebuff, SCREEN_WIDTH/2-120, starty, fontSize,RED);
-
+               draw_game_over_screen(&player);
             }else{
                 process_step(GetFrameTime(), gametime, &player);                
             }
