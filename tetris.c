@@ -106,7 +106,7 @@ int new_piece(Player*);
 
 int init_player(Player *player, int playernum){
 	
-	player->boardpos_x = (PLAYER_BOARD_OFFSET_X +1) * playernum;
+	player->boardpos_x = PLAYER_BOARD_OFFSET_X + (SCREEN_WIDTH / PLAYERS + PLAYER_BOARD_OFFSET_X) * playernum;
 	//currently we only support one row of players
 	player->boardpos_y = PLAYER_BOARD_OFFSET_Y;
 	player->block_x = 5;
@@ -165,10 +165,11 @@ int draw_cell(int base_x, int base_y, int x, int y, int contents){
 int draw_score(Player *player){
 
     char scorebuff[1024];
+	int x_start = player->boardpos_x - ( WIDTH * CELL_DIM )/2 -20;
     sprintf(scorebuff,"Score: %d",player->score);
-    DrawText(scorebuff,10,10,20,RAYWHITE);
+    DrawText(scorebuff, x_start, 10, 20, RAYWHITE);
     sprintf(scorebuff,"Level: %d",player->level);
-    DrawText(scorebuff,10,45,20,RAYWHITE);
+    DrawText(scorebuff, x_start, 45, 20, RAYWHITE);
     return 0;
 }
 
