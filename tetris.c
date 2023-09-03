@@ -16,7 +16,7 @@
  *   - ? network multiplayer?
  * 
  * */
-
+#define PLAYERS 2
 #define SCREEN_WIDTH 1000
 #define SCREEN_HEIGHT 640
 #define HEIGHT 25
@@ -24,7 +24,6 @@
 #define CELL_DIM 25
 
 
-#define PLAYERS 2
 #define KEYIDX_UP    0
 #define KEYIDX_LEFT  1
 #define KEYIDX_DOWN  2
@@ -104,6 +103,18 @@ typedef struct {
 
 int new_piece(Player*);
 
+int* init_keymap(int keymap[5]){
+	//dirs and space to drop
+	
+	keymap[KEYIDX_UP]    = KEY_UP;
+	keymap[KEYIDX_DOWN]  = KEY_DOWN;
+	keymap[KEYIDX_LEFT]  = KEY_LEFT;
+	keymap[KEYIDX_RIGHT] = KEY_RIGHT;
+	keymap[KEYIDX_DROP]  = KEY_SPACE;
+
+	return keymap;
+}
+
 int init_player(Player *player, int playernum){
 	
 	player->boardpos_x = PLAYER_BOARD_OFFSET_X + (SCREEN_WIDTH / PLAYERS + PLAYER_BOARD_OFFSET_X) * playernum;
@@ -127,6 +138,7 @@ int init_player(Player *player, int playernum){
     player->level = 1;
     player->total_lines = 0;
 
+	init_keymap(player->keymap);
     int x, y;
 
 	for(x=0;x<WIDTH;x++){
@@ -560,32 +572,24 @@ int draw_game_over_screen(Player *player){
     int fontSize = 30;
     char scorebuff[1024];
     //DrawText("GAME OVER",SCREEN_WIDTH/2 -100 , starty, fontSize, RED);
-    draw_text_centered("Game Over", SCREEN_WIDTH/2, starty, fontSize, RED);
+    draw_text_centered("Game Over", player->boardpos_x, starty, fontSize, RED);
     
     sprintf(scorebuff,"SCORE: %d", player->score);
     starty += fontSize*1.2;
-    draw_text_centered(scorebuff,SCREEN_WIDTH/2,starty,fontSize,RED);
+    draw_text_centered(scorebuff, player->boardpos_x,starty,fontSize,RED);
     
     sprintf(scorebuff,"Level: %d", player->level);
     starty += fontSize*1.2;
-    draw_text_centered(scorebuff,SCREEN_WIDTH/2, starty,fontSize,RED);
+    draw_text_centered(scorebuff, player->boardpos_x, starty,fontSize,RED);
 
     sprintf(scorebuff,"Total Lines: %d", player->total_lines);
     starty += fontSize*1.2;
-    draw_text_centered(scorebuff, SCREEN_WIDTH/2, starty, fontSize,RED);
+    draw_text_centered(scorebuff, player->boardpos_x, starty, fontSize,RED);
 
 
 }
 
-int init_keymap(int keymap[5]){
-	//dirs and space to drop
-	
-	keymap[KEYIDX_UP]    = KEY_UP;
-	keymap[KEYIDX_DOWN]  = KEY_DOWN;
-	keymap[KEYIDX_LEFT]  = KEY_LEFT;
-	keymap[KEYIDX_RIGHT] = KEY_RIGHT;
-	keymap[KEYIDX_DROP]  = KEY_SPACE;
-}
+
 
 int main (void){
 
@@ -610,11 +614,11 @@ int main (void){
     key_pressed_at = 0;
     last_key = 0;
     key = 0;
-	Player player[PLAYERS];
+	Player players[PLAYERS];
     
 	int i;
 	for(i=0; i<PLAYERS; i++){
-		init_player(&player[i], i);
+		init_player(&players[i], i);
 	}	
 
     printf("initialised player\n");
@@ -640,39 +644,35 @@ int main (void){
                 key_pressed_at = gametime;
             } 
         }
-
+		//printf("key pressed = %d\n",key);
         //TODO indirect these keys to allow for remapping
 		int p;
 		for(p=0; p < PLAYERS; p++){
-			switch(key){
-				case KEY_LEFT : {
-									if(can_strafe(&player[p],-1)){
-										update_block_pos(&player[p],-1,0);//BLOCK_X -= 1;
-									}
-									break;
+			
+				if(key == players[p].keymap[KEYIDX_LEFT]) {
+									if(can_strafe(&players[p],-1)){
+										update_block_pos(&players[p],-1,0);//BLOCK_X -= 1;
+									}									
 								}
-				case KEY_RIGHT : {
-									if(can_strafe(&player[p],+1)){
-										update_block_pos(&player[p],1,0);
-									}
-									break;
+				if(key == players[p].keymap[KEYIDX_RIGHT]) {
+									if(can_strafe(&players[p],+1)){
+										update_block_pos(&players[p],1,0);
+									}									
 								}
-				case KEY_DOWN : {
-									if(can_drop(&player[p])){
-										update_block_pos(&player[p], 0,1);                                
-									}
-									break;
-								}
-				case KEY_UP : {     
-									rotate_block(&player[p], player[p].current_piece, 1);
-									break;
-								}
-				case KEY_SPACE: {
-									while(can_drop(&player[p])){
-										update_block_pos(&player[p],0,1);
+				if(key == players[p].keymap[KEYIDX_DOWN]) {
+									if(can_drop(&players[p])){
+										update_block_pos(&players[p], 0,1);                                
 									}
 								}
-			}
+				if(key == players[p].keymap[KEYIDX_UP]) {     
+									rotate_block(&players[p], players[p].current_piece, 1);
+								}
+				if(key == players[p].keymap[KEYIDX_DROP]) {
+									while(can_drop(&players[p])){
+										update_block_pos(&players[p],0,1);
+									}
+								}
+			
 		}
 
         // Draw
@@ -680,10 +680,10 @@ int main (void){
         BeginDrawing();
 			for(p=0;p<PLAYERS;p++){
 				ClearBackground(BLACK);
-				if(player[p].game_over){
-				   draw_game_over_screen(&player[p]);
+				if(players[p].game_over){
+				   draw_game_over_screen(&players[p]);
 				}else{
-					process_step(GetFrameTime(), gametime, &player[p]);                
+					process_step(GetFrameTime(), gametime, &players[p]);                
 				}
 			}
         EndDrawing();
