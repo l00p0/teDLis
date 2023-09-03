@@ -8,22 +8,29 @@
 /*****
  *
  * TODOS
- * 
+ *   - fix rotation bug that allows to rotate into other blocks (adjust block-pos like wall-kick if valid) 
  *   - do some animation when lines complete, when moving, etc
  *   - sound
- *   - drop position indicator
  *   - ? multiplayer  (with punish)
  *   - ? network multiplayer?
- * 
+ *   - INI file to store keymap / hihgscores / other defaults (e.g. num players)
  * */
+
+// STORE some of these in INI file and use as global vars
 #define PLAYERS 2
-#define SCREEN_WIDTH 1000
-#define SCREEN_HEIGHT 640
+#define TOTAL_SCREEN_WIDTH 1000
+#define TOTAL_SCREEN_HEIGHT 640
+
+
+#define SCREEN_WIDTH (TOTAL_SCREEN_WIDTH/PLAYERS)
+#define SCREEN_HEIGHT TOTAL_SCREEN_HEIGHT
 #define HEIGHT 25
 #define WIDTH 10
 #define CELL_DIM 25
 
 
+
+// constants for key-indexes  
 #define KEYIDX_UP    0
 #define KEYIDX_LEFT  1
 #define KEYIDX_DOWN  2
@@ -33,7 +40,7 @@
 
 
 //BOARD BASE POSITION in pixels
-const int PLAYER_BOARD_OFFSET_X = (SCREEN_WIDTH / PLAYERS - CELL_DIM * WIDTH) / 2;
+const int PLAYER_BOARD_OFFSET_X = (SCREEN_WIDTH - CELL_DIM * WIDTH) / 2;
 const int PLAYER_BOARD_OFFSET_Y = (SCREEN_HEIGHT - CELL_DIM * HEIGHT) / 2;
 
 //int BOARD [10][25];
@@ -78,7 +85,8 @@ int CURRENT_PIECE[4][4] = {
 
 
 typedef struct {
-	int keymap[5];
+	int playernum;
+    int keymap[5];
 	int level;
 	int score;
 	int total_lines;
@@ -103,21 +111,30 @@ typedef struct {
 
 int new_piece(Player*);
 
-int* init_keymap(int keymap[5]){
+int* init_keymap(Player *player){
 	//dirs and space to drop
-	
-	keymap[KEYIDX_UP]    = KEY_UP;
-	keymap[KEYIDX_DOWN]  = KEY_DOWN;
-	keymap[KEYIDX_LEFT]  = KEY_LEFT;
-	keymap[KEYIDX_RIGHT] = KEY_RIGHT;
-	keymap[KEYIDX_DROP]  = KEY_SPACE;
+    if(player->playernum == 1){	
+        player->keymap[KEYIDX_UP]    = KEY_UP;
+        player->keymap[KEYIDX_DOWN]  = KEY_DOWN;
+        player->keymap[KEYIDX_LEFT]  = KEY_LEFT;
+        player->keymap[KEYIDX_RIGHT] = KEY_RIGHT;
+        player->keymap[KEYIDX_DROP]  = KEY_RIGHT_CONTROL;
+    }
+	if(player->playernum == 0){	
+        player->keymap[KEYIDX_UP]    = KEY_W;
+        player->keymap[KEYIDX_DOWN]  = KEY_S;
+        player->keymap[KEYIDX_LEFT]  = KEY_A;
+        player->keymap[KEYIDX_RIGHT] = KEY_D;
+        player->keymap[KEYIDX_DROP]  = KEY_LEFT_CONTROL;
+    }
 
-	return keymap;
+	return player->keymap;
 }
 
 int init_player(Player *player, int playernum){
 	
-	player->boardpos_x = PLAYER_BOARD_OFFSET_X + (SCREEN_WIDTH / PLAYERS + PLAYER_BOARD_OFFSET_X) * playernum;
+    player->playernum = playernum;
+	player->boardpos_x = PLAYER_BOARD_OFFSET_X + (SCREEN_WIDTH * playernum);
 	//currently we only support one row of players
 	player->boardpos_y = PLAYER_BOARD_OFFSET_Y;
 	player->block_x = 5;
@@ -138,7 +155,7 @@ int init_player(Player *player, int playernum){
     player->level = 1;
     player->total_lines = 0;
 
-	init_keymap(player->keymap);
+	init_keymap(player);
     int x, y;
 
 	for(x=0;x<WIDTH;x++){
@@ -177,7 +194,7 @@ int draw_cell(int base_x, int base_y, int x, int y, int contents){
 int draw_score(Player *player){
 
     char scorebuff[1024];
-	int x_start = player->boardpos_x - ( WIDTH * CELL_DIM )/2 -20;
+	int x_start = SCREEN_WIDTH * player->playernum + 5;//player->boardpos_x - ( WIDTH * CELL_DIM ) -20;
     sprintf(scorebuff,"Score: %d",player->score);
     DrawText(scorebuff, x_start, 10, 20, RAYWHITE);
     sprintf(scorebuff,"Level: %d",player->level);
@@ -568,23 +585,28 @@ int draw_text_centered(char *txtbuff, int center_x, int start_y, int fontsize, C
 
 int draw_game_over_screen(Player *player){
 
-    int starty = SCREEN_HEIGHT/2 - 200;
+    int starty = SCREEN_HEIGHT/2 - 150;
     int fontSize = 30;
     char scorebuff[1024];
-    //DrawText("GAME OVER",SCREEN_WIDTH/2 -100 , starty, fontSize, RED);
-    draw_text_centered("Game Over", player->boardpos_x, starty, fontSize, RED);
+    int center_x = SCREEN_WIDTH * player->playernum + SCREEN_WIDTH /2;
+    
+    sprintf(scorebuff,"PLAYER %d", player->playernum + 1);
+    draw_text_centered(scorebuff, center_x,starty,fontSize,RED);
+    
+    starty += fontSize*1.2;   
+    draw_text_centered("Game Over", center_x, starty, fontSize, RED);
     
     sprintf(scorebuff,"SCORE: %d", player->score);
     starty += fontSize*1.2;
-    draw_text_centered(scorebuff, player->boardpos_x,starty,fontSize,RED);
+    draw_text_centered(scorebuff, center_x,starty,fontSize,RED);
     
     sprintf(scorebuff,"Level: %d", player->level);
     starty += fontSize*1.2;
-    draw_text_centered(scorebuff, player->boardpos_x, starty,fontSize,RED);
+    draw_text_centered(scorebuff, center_x, starty,fontSize,RED);
 
     sprintf(scorebuff,"Total Lines: %d", player->total_lines);
     starty += fontSize*1.2;
-    draw_text_centered(scorebuff, player->boardpos_x, starty, fontSize,RED);
+    draw_text_centered(scorebuff, center_x, starty, fontSize,RED);
 
 
 }
@@ -595,8 +617,8 @@ int main (void){
 
     // Initialization
     //--------------------------------------------------------------------------------------
-    const int screenWidth = SCREEN_WIDTH;
-    const int screenHeight = SCREEN_HEIGHT;
+    const int screenWidth = TOTAL_SCREEN_WIDTH;
+    const int screenHeight = TOTAL_SCREEN_HEIGHT;
 
 
     srand(time(0));
@@ -635,6 +657,8 @@ int main (void){
            key = next_key; 
            key_pressed_at = gametime;
         }
+
+        /* THIS WON't WORK FOR MULTIPLAYER
         //we want to repeatedly do the action if the key is held down, need a delay before repeating
 
         if(last_key != KEY_UP && IsKeyDown(last_key)){
@@ -644,6 +668,7 @@ int main (void){
                 key_pressed_at = gametime;
             } 
         }
+        */
 		//printf("key pressed = %d\n",key);
         //TODO indirect these keys to allow for remapping
 		int p;
