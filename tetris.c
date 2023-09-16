@@ -8,7 +8,6 @@
 /*****
  *
  * TODOS
- *   - fix rotation bug that allows to rotate into other blocks (adjust block-pos like wall-kick if valid) 
  *   - do some animation when lines complete, when moving, etc
  *   - sound
  *   - ? multiplayer  (with punish)
@@ -36,7 +35,6 @@
 #define KEYIDX_DOWN  2
 #define KEYIDX_RIGHT 3
 #define KEYIDX_DROP  4
-
 
 
 //BOARD BASE POSITION in pixels
@@ -129,6 +127,20 @@ int* init_keymap(Player *player){
     }
 
 	return player->keymap;
+}
+
+enum sound_enums { sound_vanish, sound_land, sound_rotate, sound_invalid, sound_game_over, sound_max};
+Sound sounds[sound_max];
+
+
+int init_sounds(){
+    
+    InitAudioDevice();      // Initialize audio device
+
+    sounds[sound_vanish]  = LoadSound("sfx_explode.ogg");
+    sounds[sound_land]    = LoadSound("sfx_land.ogg"); 
+    sounds[sound_rotate]  = LoadSound("sfx_ping.wav");
+    sounds[sound_invalid] = LoadSound("sfx_meh.wav");
 }
 
 int init_player(Player *player, int playernum){
@@ -251,66 +263,11 @@ int draw_preview_pieces(Player *player){
 
 }
 
-int rotate_block(Player *player, int result[4][4], int rotation){
-    int swap[4][4];
-	
-    int x,y,d;
-    //clear swap space
-    for(x=0;x<4;x++){
-        for(y=0;y<4;y++){
-            swap[y][x] = 0;
-        }
-    }
-   
-    //rotate around diagonal
-    for(x=0;x<4;x++){
-        for(y=0;y<4;y++){
-            swap[y][x] = result[x][y];
-        }
-    }
 
-    //get middle x 
-    int max_x=0;
-    for(x=0;x<4;x++){
-        for(y=0;y<4;y++){
-            if(swap[x][y] >0){
-                if(max_x < x){
-                    max_x = x;
-                }
-            }
-        }
-    }
-    //clear result before writing
-    for(x=0;x<4;x++){
-        for(y=0;y<4;y++){
-            result[x][y]=0;
-        }
-    }
-
-    //flip about half of max_x
-    for(y=0;y<4;y++){
-        for(d=0;d<=(max_x);d++){
-            result[d][y] = swap[max_x-d][y];
-        }
-    }
-
-    //swap x and y extents;
-    int temp = player->block_x_size;
-    player->block_x_size = player->block_y_size;
-    player->block_y_size = temp;
-    //check if we're out of bounds and move
-    if(player->block_x +player->block_x_size > WIDTH){
-        player->block_x = WIDTH - player->block_x_size;
-        //in case we wall-kicked we need to update last_pos to avoid animation artifacts
-        update_block_pos(player,0,0);
-    }
-    if(player->block_x < 0){//should never be true
-        player->block_x = 0;
-    }
-    
-    return 0;
+int play_sound(enum sound_enums sound_t){
+    printf("playing sound %d \n",sound_t);
+    PlaySound(sounds[sound_t]);
 }
-
 
 int set_current_piece(Player *player, int tet_index){
 
@@ -378,48 +335,137 @@ int cell_full(int board[WIDTH][HEIGHT], int x, int y){
     }
 }
 
-int can_strafe(Player *player, int x_offset){
-    //make sure that there is a space on the board for every row of the current_piece
-    int x,y;
-    for(x=0; x < player->block_x_size; x++){
-        for(y=0; y < player->block_y_size; y++){
-            if(player->current_piece[y][x]){
-                if(cell_full(player->board, player->block_x + x + x_offset, player->block_y + y)){
-                    return 0;
+/**
+ * returns true if piece fits
+ *
+ **/
+bool piece_fits(int board[WIDTH][HEIGHT], int piece[4][4], int pos_x, int pos_y,int x_size, int y_size){
+    int col, row;
+    //printf("checking pos %d,%d width %d\n",pos_x,pos_y,x_size);
+    if(pos_x + x_size > WIDTH) return false;
+    if(pos_y + y_size > HEIGHT) return false;
+    for(col =0; col < y_size; col++){
+        for(row = 0; row < x_size; row++){
+            if(piece[col][row]){
+                if(cell_full(board, pos_x + row, pos_y + col)){
+                    return false;
                 }
             }
         }
     }
-    //didn't fail == success
-    return 1;
+    return true;
 }
 
-int can_drop(Player *player){
-    int row,col;
 
-    //foreach col in the current piece get the highest row-index
+/**
+ * convenience function to call piece_fits() from a Player
+ */
+bool can_go_to(Player *player, int x_offset, int y_offset){
+    return piece_fits(
+            player->board, 
+            player->current_piece, 
+            player->block_x + x_offset, 
+            player->block_y + y_offset, 
+            player->block_x_size, 
+            player->block_y_size);
+}
 
-    for(col=0; col < 4; col++){
-        for(row =0; row < 4; row++){
-            if(player->current_piece[row][col]){
-                if(cell_full(player->board, player->block_x + col, player->block_y + row + 1)){
-//                    printf("can't drop \n");
-                    return 0;
+int rotate_block(Player *player, int piece[4][4], int rotation){
+    int swap[4][4];
+    int copy[4][4];
+	
+    int x,y,d, copy_x_size, copy_y_size;
+
+    //make a copy to mess with
+    for(y=0;y<4;y++){
+        for(x=0;x<4;x++){
+            copy[x][y] = piece[x][y];
+        }
+    }
+
+    //clear swap space
+    for(x=0;x<4;x++){
+        for(y=0;y<4;y++){
+            swap[y][x] = 0;
+        }
+    }
+   
+    //rotate around diagonal
+    for(x=0;x<4;x++){
+        for(y=0;y<4;y++){
+            swap[y][x] = piece[x][y];
+        }
+    }
+
+    //get middle x 
+    int max_x=0;
+    for(x=0;x<4;x++){
+        for(y=0;y<4;y++){
+            if(swap[x][y] >0){
+                if(max_x < x){
+                    max_x = x;
                 }
             }
         }
     }
-//    printf("Can drop %d,%d\n",BLOCK_X,BLOCK_Y);
-    return 1;
+    //clear result before writing
+    for(x=0;x<4;x++){
+        for(y=0;y<4;y++){
+            copy[x][y]=0;
+        }
+    }
+
+    //flip about half of max_x
+    for(y=0;y<4;y++){
+        for(d=0;d<=(max_x);d++){
+            copy[d][y] = swap[max_x-d][y];
+        }
+    }
+
+    //swap x and y extents;
+    copy_x_size = player->block_y_size;
+    copy_y_size = player->block_x_size;
+
+    bool valid = 0;
+
+    //check if new rotation collides with blocks on the board or if it's possible to offset on the same line and get a fit
+    int offset = 0;
+    for(offset = 0; offset >= -copy_x_size; offset--){
+        valid = piece_fits(player->board, copy, player->block_x+offset,player->block_y,copy_x_size, copy_y_size);
+        if(valid){
+            player->block_x += offset; //adjust block x pos if we found a valid position
+            play_sound(sound_rotate);
+            break;
+        }
+    }
+    
+    if(!valid){
+        play_sound(sound_invalid);
+        return -1;
+    }else{
+        //copy result to incoming piece
+        for(y=0;y<4;y++){
+            for(x=0;x<4;x++){
+                piece[y][x]=copy[y][x];
+            }
+        }
+        player->block_x_size = copy_x_size;
+        player->block_y_size = copy_y_size;
+        return 0;
+    }
 }
 
 
 
+/**
+ * places the currently moving piece on the board (makes it settle/stick) before the next piece comes into play
+ *
+ */
 int piece_to_board(Player *player){
     int row,col;
 
 	//adjust postition in case we came off the bottom, 
-	// FIXME this is porbably buggy
+	// FIXME this is probably buggy
 	if(player->block_y + player->block_y_size > HEIGHT){
 		player->block_y = HEIGHT - player->block_y_size;		
 	}
@@ -432,6 +478,7 @@ int piece_to_board(Player *player){
         }
     }
     player->score += player->block_y * player->level;
+    play_sound(sound_land);
     return 0;
 }
 
@@ -470,6 +517,8 @@ int vanish_line(int board[WIDTH][HEIGHT], int line){
         board[x][0] = 0;
     }
 //    start_animation_completed_line(line);
+
+    play_sound(sound_vanish);
     return 0;
 }
 
@@ -496,7 +545,7 @@ int score_lines(int board[WIDTH][HEIGHT]){
 
 int next_step(Player *player){
     player->current_step_left = player->step_timeout;
-    if(can_drop(player)){
+    if(can_go_to(player,0,1)){
         update_block_pos(player,0,1);
     }else{//we landed
         //are we dead?
@@ -624,7 +673,10 @@ int main (void){
     srand(time(0));
     InitWindow(screenWidth, screenHeight, "teDLis");
 
+
     SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
+    
+    init_sounds();
     //--------------------------------------------------------------------------------------
 
     
@@ -670,22 +722,21 @@ int main (void){
         }
         */
 		//printf("key pressed = %d\n",key);
-        //TODO indirect these keys to allow for remapping
 		int p;
 		for(p=0; p < PLAYERS; p++){
 			
 				if(key == players[p].keymap[KEYIDX_LEFT]) {
-									if(can_strafe(&players[p],-1)){
+									if(can_go_to(&players[p],-1,0)){
 										update_block_pos(&players[p],-1,0);//BLOCK_X -= 1;
 									}									
 								}
 				if(key == players[p].keymap[KEYIDX_RIGHT]) {
-									if(can_strafe(&players[p],+1)){
+                                    if(can_go_to(&players[p],1,0)){
 										update_block_pos(&players[p],1,0);
-									}									
+									}
 								}
 				if(key == players[p].keymap[KEYIDX_DOWN]) {
-									if(can_drop(&players[p])){
+									if(can_go_to(&players[p],0,1)){
 										update_block_pos(&players[p], 0,1);                                
 									}
 								}
@@ -693,7 +744,7 @@ int main (void){
 									rotate_block(&players[p], players[p].current_piece, 1);
 								}
 				if(key == players[p].keymap[KEYIDX_DROP]) {
-									while(can_drop(&players[p])){
+									while(can_go_to(&players[p],0,1)){
 										update_block_pos(&players[p],0,1);
 									}
 								}
