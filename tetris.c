@@ -265,7 +265,7 @@ int draw_preview_pieces(Player *player){
 
 
 int play_sound(enum sound_enums sound_t){
-    printf("playing sound %d \n",sound_t);
+    //printf("playing sound %d \n",sound_t);
     PlaySound(sounds[sound_t]);
 }
 
