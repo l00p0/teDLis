@@ -8,26 +8,38 @@
 /*****
  *
  * TODOS
- * 
  *   - do some animation when lines complete, when moving, etc
  *   - sound
- *   - drop position indicator
  *   - ? multiplayer  (with punish)
  *   - ? network multiplayer?
- * 
+ *   - INI file to store keymap / hihgscores / other defaults (e.g. num players)
  * */
 
-#define SCREEN_WIDTH 800
-#define SCREEN_HEIGHT 640
+// STORE some of these in INI file and use as global vars
+#define PLAYERS 2
+#define TOTAL_SCREEN_WIDTH 1000
+#define TOTAL_SCREEN_HEIGHT 640
+
+
+#define SCREEN_WIDTH (TOTAL_SCREEN_WIDTH/PLAYERS)
+#define SCREEN_HEIGHT TOTAL_SCREEN_HEIGHT
 #define HEIGHT 25
 #define WIDTH 10
 #define CELL_DIM 25
 
 
 
+// constants for key-indexes  
+#define KEYIDX_UP    0
+#define KEYIDX_LEFT  1
+#define KEYIDX_DOWN  2
+#define KEYIDX_RIGHT 3
+#define KEYIDX_DROP  4
+
+
 //BOARD BASE POSITION in pixels
-const int B_X = (SCREEN_WIDTH - CELL_DIM * WIDTH) / 2;
-const int B_Y = (SCREEN_HEIGHT - CELL_DIM * HEIGHT) / 2;
+const int PLAYER_BOARD_OFFSET_X = (SCREEN_WIDTH - CELL_DIM * WIDTH) / 2;
+const int PLAYER_BOARD_OFFSET_Y = (SCREEN_HEIGHT - CELL_DIM * HEIGHT) / 2;
 
 //int BOARD [10][25];
 
@@ -71,10 +83,15 @@ int CURRENT_PIECE[4][4] = {
 
 
 typedef struct {
+	int playernum;
+    int keymap[5];
 	int level;
 	int score;
 	int total_lines;
     int game_over;
+
+	int boardpos_x; //base board display pixel position
+	int boardpos_y;
     
     int board[WIDTH][HEIGHT];
 	int current_piece[4][4];
@@ -92,8 +109,47 @@ typedef struct {
 
 int new_piece(Player*);
 
-int init_player(Player *player){
-    player->block_x = 5;
+int* init_keymap(Player *player){
+	//dirs and space to drop
+    if(player->playernum == 1){	
+        player->keymap[KEYIDX_UP]    = KEY_UP;
+        player->keymap[KEYIDX_DOWN]  = KEY_DOWN;
+        player->keymap[KEYIDX_LEFT]  = KEY_LEFT;
+        player->keymap[KEYIDX_RIGHT] = KEY_RIGHT;
+        player->keymap[KEYIDX_DROP]  = KEY_RIGHT_CONTROL;
+    }
+	if(player->playernum == 0){	
+        player->keymap[KEYIDX_UP]    = KEY_W;
+        player->keymap[KEYIDX_DOWN]  = KEY_S;
+        player->keymap[KEYIDX_LEFT]  = KEY_A;
+        player->keymap[KEYIDX_RIGHT] = KEY_D;
+        player->keymap[KEYIDX_DROP]  = KEY_LEFT_CONTROL;
+    }
+
+	return player->keymap;
+}
+
+enum sound_enums { sound_vanish, sound_land, sound_rotate, sound_invalid, sound_game_over, sound_max};
+Sound sounds[sound_max];
+
+
+int init_sounds(){
+    
+    InitAudioDevice();      // Initialize audio device
+
+    sounds[sound_vanish]  = LoadSound("sfx_explode.ogg");
+    sounds[sound_land]    = LoadSound("sfx_land.ogg"); 
+    sounds[sound_rotate]  = LoadSound("sfx_ping.wav");
+    sounds[sound_invalid] = LoadSound("sfx_meh.wav");
+}
+
+int init_player(Player *player, int playernum){
+	
+    player->playernum = playernum;
+	player->boardpos_x = PLAYER_BOARD_OFFSET_X + (SCREEN_WIDTH * playernum);
+	//currently we only support one row of players
+	player->boardpos_y = PLAYER_BOARD_OFFSET_Y;
+	player->block_x = 5;
     player->block_y = 0;
     player->block_x_last = 5;
     player->block_y_last = 0;
@@ -111,6 +167,7 @@ int init_player(Player *player){
     player->level = 1;
     player->total_lines = 0;
 
+	init_keymap(player);
     int x, y;
 
 	for(x=0;x<WIDTH;x++){
@@ -149,33 +206,36 @@ int draw_cell(int base_x, int base_y, int x, int y, int contents){
 int draw_score(Player *player){
 
     char scorebuff[1024];
+	int x_start = SCREEN_WIDTH * player->playernum + 5;//player->boardpos_x - ( WIDTH * CELL_DIM ) -20;
     sprintf(scorebuff,"Score: %d",player->score);
-    DrawText(scorebuff,10,10,20,RAYWHITE);
+    DrawText(scorebuff, x_start, 10, 20, RAYWHITE);
     sprintf(scorebuff,"Level: %d",player->level);
-    DrawText(scorebuff,10,45,20,RAYWHITE);
+    DrawText(scorebuff, x_start, 45, 20, RAYWHITE);
     return 0;
 }
 
 
-int draw_board(int board[WIDTH][HEIGHT], int boardpos){
-    int boardoffset = 100 + boardpos * CELL_DIM * WIDTH;
+int draw_board(Player *player){
+//    int board[WIDTH][HEIGHT] = player->board,
+    //int boardoffset = 100 + player->boardpos_x * CELL_DIM * WIDTH;
+	
 
     //int c_x = (boardoffset) / 2 ;
     int c_x = SCREEN_WIDTH / 2;
     int c_y = SCREEN_HEIGHT / 2;
 
     //draw surround
-    int bx,by;
-    bx = c_x - (CELL_DIM * WIDTH) / 2;
-    by = c_y - (CELL_DIM * HEIGHT) / 2;
-    DrawRectangle(bx,by,CELL_DIM * WIDTH, CELL_DIM * HEIGHT,BLUE);
+    //int bx,by;
+    //bx = c_x - (CELL_DIM * WIDTH) / 2;
+    //by = c_y - (CELL_DIM * HEIGHT) / 2;
+    DrawRectangle(player->boardpos_x, player->boardpos_y, CELL_DIM * WIDTH, CELL_DIM * HEIGHT, BLUE);
 
     //draw contents
     int x,y;
     for(x=0;x<WIDTH;x++){
         for(y=0; y<HEIGHT; y++){
-            if(board[x][y] != 0){
-                draw_cell(bx,by,x,y,board[x][y]);
+            if(player->board[x][y] != 0){
+                draw_cell(player->boardpos_x, player->boardpos_y, x, y, player->board[x][y]);
             };
         }
     }
@@ -194,7 +254,7 @@ int draw_preview(int x, int y, int tet_index, int cell_dim){
 }
 
 int draw_preview_pieces(Player *player){
-    int x = (SCREEN_WIDTH + WIDTH * CELL_DIM) / 2 + 50;
+    int x = player->boardpos_x + (WIDTH * CELL_DIM) + 40; //(SCREEN_WIDTH + WIDTH * CELL_DIM) / 2 + 50;
     int y = 10;
     int preview_cell_dim = 10;
     draw_preview(x, y, player->piece_buffer[0], preview_cell_dim);
@@ -203,66 +263,11 @@ int draw_preview_pieces(Player *player){
 
 }
 
-int rotate_block(Player *player, int result[4][4], int rotation){
-    int swap[4][4];
-	
-    int x,y,d;
-    //clear swap space
-    for(x=0;x<4;x++){
-        for(y=0;y<4;y++){
-            swap[y][x] = 0;
-        }
-    }
-   
-    //rotate around diagonal
-    for(x=0;x<4;x++){
-        for(y=0;y<4;y++){
-            swap[y][x] = result[x][y];
-        }
-    }
 
-    //get middle x 
-    int max_x=0;
-    for(x=0;x<4;x++){
-        for(y=0;y<4;y++){
-            if(swap[x][y] >0){
-                if(max_x < x){
-                    max_x = x;
-                }
-            }
-        }
-    }
-    //clear result before writing
-    for(x=0;x<4;x++){
-        for(y=0;y<4;y++){
-            result[x][y]=0;
-        }
-    }
-
-    //flip about half of max_x
-    for(y=0;y<4;y++){
-        for(d=0;d<=(max_x);d++){
-            result[d][y] = swap[max_x-d][y];
-        }
-    }
-
-    //swap x and y extents;
-    int temp = player->block_x_size;
-    player->block_x_size = player->block_y_size;
-    player->block_y_size = temp;
-    //check if we're out of bounds and move
-    if(player->block_x +player->block_x_size > WIDTH){
-        player->block_x = WIDTH - player->block_x_size;
-        //in case we wall-kicked we need to update last_pos to avoid animation artifacts
-        update_block_pos(player,0,0);
-    }
-    if(player->block_x < 0){//should never be true
-        player->block_x = 0;
-    }
-    
-    return 0;
+int play_sound(enum sound_enums sound_t){
+    //printf("playing sound %d \n",sound_t);
+    PlaySound(sounds[sound_t]);
 }
-
 
 int set_current_piece(Player *player, int tet_index){
 
@@ -330,48 +335,137 @@ int cell_full(int board[WIDTH][HEIGHT], int x, int y){
     }
 }
 
-int can_strafe(Player *player, int x_offset){
-    //make sure that there is a space on the board for every row of the current_piece
-    int x,y;
-    for(x=0; x < player->block_x_size; x++){
-        for(y=0; y < player->block_y_size; y++){
-            if(player->current_piece[y][x]){
-                if(cell_full(player->board, player->block_x + x + x_offset, player->block_y + y)){
-                    return 0;
+/**
+ * returns true if piece fits
+ *
+ **/
+bool piece_fits(int board[WIDTH][HEIGHT], int piece[4][4], int pos_x, int pos_y,int x_size, int y_size){
+    int col, row;
+    //printf("checking pos %d,%d width %d\n",pos_x,pos_y,x_size);
+    if(pos_x + x_size > WIDTH) return false;
+    if(pos_y + y_size > HEIGHT) return false;
+    for(col =0; col < y_size; col++){
+        for(row = 0; row < x_size; row++){
+            if(piece[col][row]){
+                if(cell_full(board, pos_x + row, pos_y + col)){
+                    return false;
                 }
             }
         }
     }
-    //didn't fail == success
-    return 1;
+    return true;
 }
 
-int can_drop(Player *player){
-    int row,col;
 
-    //foreach col in the current piece get the highest row-index
+/**
+ * convenience function to call piece_fits() from a Player
+ */
+bool can_go_to(Player *player, int x_offset, int y_offset){
+    return piece_fits(
+            player->board, 
+            player->current_piece, 
+            player->block_x + x_offset, 
+            player->block_y + y_offset, 
+            player->block_x_size, 
+            player->block_y_size);
+}
 
-    for(col=0; col < 4; col++){
-        for(row =0; row < 4; row++){
-            if(player->current_piece[row][col]){
-                if(cell_full(player->board, player->block_x + col, player->block_y + row + 1)){
-//                    printf("can't drop \n");
-                    return 0;
+int rotate_block(Player *player, int piece[4][4], int rotation){
+    int swap[4][4];
+    int copy[4][4];
+	
+    int x,y,d, copy_x_size, copy_y_size;
+
+    //make a copy to mess with
+    for(y=0;y<4;y++){
+        for(x=0;x<4;x++){
+            copy[x][y] = piece[x][y];
+        }
+    }
+
+    //clear swap space
+    for(x=0;x<4;x++){
+        for(y=0;y<4;y++){
+            swap[y][x] = 0;
+        }
+    }
+   
+    //rotate around diagonal
+    for(x=0;x<4;x++){
+        for(y=0;y<4;y++){
+            swap[y][x] = piece[x][y];
+        }
+    }
+
+    //get middle x 
+    int max_x=0;
+    for(x=0;x<4;x++){
+        for(y=0;y<4;y++){
+            if(swap[x][y] >0){
+                if(max_x < x){
+                    max_x = x;
                 }
             }
         }
     }
-//    printf("Can drop %d,%d\n",BLOCK_X,BLOCK_Y);
-    return 1;
+    //clear result before writing
+    for(x=0;x<4;x++){
+        for(y=0;y<4;y++){
+            copy[x][y]=0;
+        }
+    }
+
+    //flip about half of max_x
+    for(y=0;y<4;y++){
+        for(d=0;d<=(max_x);d++){
+            copy[d][y] = swap[max_x-d][y];
+        }
+    }
+
+    //swap x and y extents;
+    copy_x_size = player->block_y_size;
+    copy_y_size = player->block_x_size;
+
+    bool valid = 0;
+
+    //check if new rotation collides with blocks on the board or if it's possible to offset on the same line and get a fit
+    int offset = 0;
+    for(offset = 0; offset >= -copy_x_size; offset--){
+        valid = piece_fits(player->board, copy, player->block_x+offset,player->block_y,copy_x_size, copy_y_size);
+        if(valid){
+            player->block_x += offset; //adjust block x pos if we found a valid position
+            play_sound(sound_rotate);
+            break;
+        }
+    }
+    
+    if(!valid){
+        play_sound(sound_invalid);
+        return -1;
+    }else{
+        //copy result to incoming piece
+        for(y=0;y<4;y++){
+            for(x=0;x<4;x++){
+                piece[y][x]=copy[y][x];
+            }
+        }
+        player->block_x_size = copy_x_size;
+        player->block_y_size = copy_y_size;
+        return 0;
+    }
 }
 
 
 
+/**
+ * places the currently moving piece on the board (makes it settle/stick) before the next piece comes into play
+ *
+ */
 int piece_to_board(Player *player){
     int row,col;
 
 	//adjust postition in case we came off the bottom, 
-	// FIXME this is porbably buggy
+	// FIXME this is probably buggy
 	if(player->block_y + player->block_y_size > HEIGHT){
 		player->block_y = HEIGHT - player->block_y_size;		
 	}
@@ -384,6 +478,7 @@ int piece_to_board(Player *player){
         }
     }
     player->score += player->block_y * player->level;
+    play_sound(sound_land);
     return 0;
 }
 
@@ -422,6 +517,8 @@ int vanish_line(int board[WIDTH][HEIGHT], int line){
         board[x][0] = 0;
     }
 //    start_animation_completed_line(line);
+
+    play_sound(sound_vanish);
     return 0;
 }
 
@@ -448,7 +545,7 @@ int score_lines(int board[WIDTH][HEIGHT]){
 
 int next_step(Player *player){
     player->current_step_left = player->step_timeout;
-    if(can_drop(player)){
+    if(can_go_to(player,0,1)){
         update_block_pos(player,0,1);
     }else{//we landed
         //are we dead?
@@ -484,7 +581,7 @@ int process_step(float dt, double gametime, Player *player){
     }
 
     draw_score(player);
-    draw_board(player->board,1);//TODO fix for multiplayer mode
+    draw_board(player);//TODO fix for multiplayer mode
     draw_preview_pieces(player);
 
     void * particles;
@@ -507,18 +604,17 @@ int process_step(float dt, double gametime, Player *player){
 		offset_y = player->block_y * CELL_DIM;
 	}
     int row,col;
-    int base_x = B_X + offset_x;// + (BLOCK_X_LAST * CELL_DIM);
-    int base_y = B_Y + offset_y;// + (BLOCK_Y_LAST * CELL_DIM);
+    int base_x = player->boardpos_x + offset_x;// + (BLOCK_X_LAST * CELL_DIM);
+    int base_y = player->boardpos_y + offset_y;// + (BLOCK_Y_LAST * CELL_DIM);
 //    printf("Drawing at basepos %d, %d \n",base_x,base_y);
     for(col=0;col<4;col++){
         for(row=0;row<4;row++){
             if(player->current_piece[row][col] != 0){
                 draw_cell_px(base_x + (col*CELL_DIM), base_y + (row*CELL_DIM), CELL_DIM, player->current_piece[row][col]);
- //               draw_cell_px(B_X - 4 + ((BLOCK_X + col)*CELL_DIM), B_Y + offset_y + ((BLOCK_Y + row-4)*CELL_DIM), CELL_DIM, CURRENT_PIECE[row][col]);
             }
         }
     }
-    DrawRectangle(base_x, B_Y + (HEIGHT*CELL_DIM), player->block_x_size * CELL_DIM, 10, GRAY);
+    DrawRectangle(base_x, player->boardpos_y + (HEIGHT*CELL_DIM), player->block_x_size * CELL_DIM, 10, GRAY);
 
 //    draw_cell(BLOCK_X,BLOCK_Y,0);   
 
@@ -538,39 +634,49 @@ int draw_text_centered(char *txtbuff, int center_x, int start_y, int fontsize, C
 
 int draw_game_over_screen(Player *player){
 
-    int starty = SCREEN_HEIGHT/2 - 200;
+    int starty = SCREEN_HEIGHT/2 - 150;
     int fontSize = 30;
     char scorebuff[1024];
-    //DrawText("GAME OVER",SCREEN_WIDTH/2 -100 , starty, fontSize, RED);
-    draw_text_centered("Game Over", SCREEN_WIDTH/2, starty, fontSize, RED);
+    int center_x = SCREEN_WIDTH * player->playernum + SCREEN_WIDTH /2;
+    
+    sprintf(scorebuff,"PLAYER %d", player->playernum + 1);
+    draw_text_centered(scorebuff, center_x,starty,fontSize,RED);
+    
+    starty += fontSize*1.2;   
+    draw_text_centered("Game Over", center_x, starty, fontSize, RED);
     
     sprintf(scorebuff,"SCORE: %d", player->score);
     starty += fontSize*1.2;
-    draw_text_centered(scorebuff,SCREEN_WIDTH/2,starty,fontSize,RED);
+    draw_text_centered(scorebuff, center_x,starty,fontSize,RED);
     
     sprintf(scorebuff,"Level: %d", player->level);
     starty += fontSize*1.2;
-    draw_text_centered(scorebuff,SCREEN_WIDTH/2, starty,fontSize,RED);
+    draw_text_centered(scorebuff, center_x, starty,fontSize,RED);
 
     sprintf(scorebuff,"Total Lines: %d", player->total_lines);
     starty += fontSize*1.2;
-    draw_text_centered(scorebuff, SCREEN_WIDTH/2, starty, fontSize,RED);
+    draw_text_centered(scorebuff, center_x, starty, fontSize,RED);
 
 
 }
+
+
 
 int main (void){
 
     // Initialization
     //--------------------------------------------------------------------------------------
-    const int screenWidth = SCREEN_WIDTH;
-    const int screenHeight = SCREEN_HEIGHT;
+    const int screenWidth = TOTAL_SCREEN_WIDTH;
+    const int screenHeight = TOTAL_SCREEN_HEIGHT;
 
 
     srand(time(0));
     InitWindow(screenWidth, screenHeight, "teDLis");
 
+
     SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
+    
+    init_sounds();
     //--------------------------------------------------------------------------------------
 
     
@@ -582,8 +688,13 @@ int main (void){
     key_pressed_at = 0;
     last_key = 0;
     key = 0;
-	Player player;
-	init_player(&player);
+	Player players[PLAYERS];
+    
+	int i;
+	for(i=0; i<PLAYERS; i++){
+		init_player(&players[i], i);
+	}	
+
     printf("initialised player\n");
     // Main game loop
     while (!WindowShouldClose() )    // Detect window close button or ESC key
@@ -598,6 +709,8 @@ int main (void){
            key = next_key; 
            key_pressed_at = gametime;
         }
+
+        /* THIS WON't WORK FOR MULTIPLAYER
         //we want to repeatedly do the action if the key is held down, need a delay before repeating
 
         if(last_key != KEY_UP && IsKeyDown(last_key)){
@@ -607,50 +720,48 @@ int main (void){
                 key_pressed_at = gametime;
             } 
         }
-
-        //TODO indirect these keys to allow for remapping
-        switch(key){
-            case KEY_LEFT : {
-                                if(can_strafe(&player,-1)){
-                                    update_block_pos(&player,-1,0);//BLOCK_X -= 1;
-                                }
-                                break;
-                            }
-            case KEY_RIGHT : {
-                                if(can_strafe(&player,+1)){
-                                    update_block_pos(&player,1,0);
-                                }
-                                break;
-                            }
-            case KEY_DOWN : {
-                                if(can_drop(&player)){
-                                    update_block_pos(&player, 0,1);                                
-                                }
-                                break;
-                            }
-            case KEY_UP : {     
-                                rotate_block(&player, player.current_piece, 1);
-                                break;
-                            }
-            case KEY_SPACE: {
-                                while(can_drop(&player)){
-                                    update_block_pos(&player,0,1);
-                                }
-                            }
-        }
-        
+        */
+		//printf("key pressed = %d\n",key);
+		int p;
+		for(p=0; p < PLAYERS; p++){
+			
+				if(key == players[p].keymap[KEYIDX_LEFT]) {
+									if(can_go_to(&players[p],-1,0)){
+										update_block_pos(&players[p],-1,0);//BLOCK_X -= 1;
+									}									
+								}
+				if(key == players[p].keymap[KEYIDX_RIGHT]) {
+                                    if(can_go_to(&players[p],1,0)){
+										update_block_pos(&players[p],1,0);
+									}
+								}
+				if(key == players[p].keymap[KEYIDX_DOWN]) {
+									if(can_go_to(&players[p],0,1)){
+										update_block_pos(&players[p], 0,1);                                
+									}
+								}
+				if(key == players[p].keymap[KEYIDX_UP]) {     
+									rotate_block(&players[p], players[p].current_piece, 1);
+								}
+				if(key == players[p].keymap[KEYIDX_DROP]) {
+									while(can_go_to(&players[p],0,1)){
+										update_block_pos(&players[p],0,1);
+									}
+								}
+			
+		}
 
         // Draw
         //----------------------------------------------------------------------------------
         BeginDrawing();
-
-            ClearBackground(BLACK);
-            if(player.game_over){
-               draw_game_over_screen(&player);
-            }else{
-                process_step(GetFrameTime(), gametime, &player);                
-            }
-
+			for(p=0;p<PLAYERS;p++){
+				ClearBackground(BLACK);
+				if(players[p].game_over){
+				   draw_game_over_screen(&players[p]);
+				}else{
+					process_step(GetFrameTime(), gametime, &players[p]);                
+				}
+			}
         EndDrawing();
         //----------------------------------------------------------------------------------
     }
